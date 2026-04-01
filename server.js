@@ -16,7 +16,7 @@ const io = new Server(server, {
 
 let users = {}; // userId -> socket.id
 
-// хранение истории чатов: { 'user1|user2': [{from, to, text, timestamp}, ...] }
+// файл для хранения сообщений
 const messagesFile = path.join(__dirname, "messages.json");
 let messages = {};
 if (fs.existsSync(messagesFile)) {
@@ -25,33 +25,34 @@ if (fs.existsSync(messagesFile)) {
 }
 function saveMessages() { fs.writeFileSync(messagesFile, JSON.stringify(messages, null, 2)); }
 
-// помощник для ключа чата
+// ключ чата: одинаковый для двух пользователей
 function chatKey(userA, userB) {
-  return [userA, userB].sort().join('|'); // одинаковый ключ для обеих сторон
+  return [userA, userB].sort().join('|');
 }
 
 io.on("connection", (socket) => {
   console.log("user connected");
 
+  // регистрация пользователя
   socket.on("register", (userId) => {
     users[userId] = socket.id;
     console.log("registered:", userId);
 
-    // отправляем список чатов и последних сообщений
+    // отправляем список контактов с последним сообщением
     let chatList = {};
     for (let key in messages) {
       if (key.includes(userId)) {
         const other = key.replace(userId, '').replace('|','');
-        chatList[other] = messages[key][messages[key].length -1]; // последнее сообщение
+        chatList[other] = messages[key][messages[key].length -1];
       }
     }
     socket.emit("chatList", chatList);
   });
 
+  // личные сообщения
   socket.on("privateMessage", (msg) => {
     if (!msg.timestamp) msg.timestamp = Date.now();
     const key = chatKey(msg.from, msg.to);
-
     if (!messages[key]) messages[key] = [];
     messages[key].push(msg);
     saveMessages();
@@ -68,18 +69,17 @@ io.on("connection", (socket) => {
       let chatList = {};
       for (let k in messages) {
         if (k.includes(msg.to)) {
-          const other = k.replace(msg.to, '').replace('|','');
+          const other = k.replace(msg.to,'').replace('|','');
           chatList[other] = messages[k][messages[k].length -1];
         }
       }
       io.to(users[msg.to]).emit("chatList", chatList);
     }
 
-    // для отправителя
     let chatListFrom = {};
     for (let k in messages) {
       if (k.includes(msg.from)) {
-        const other = k.replace(msg.from, '').replace('|','');
+        const other = k.replace(msg.from,'').replace('|','');
         chatListFrom[other] = messages[k][messages[k].length -1];
       }
     }
@@ -87,9 +87,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    for (let id in users) {
-      if (users[id] === socket.id) delete users[id];
-    }
+    for (let id in users) if (users[id] === socket.id) delete users[id];
     console.log("user disconnected");
   });
 });
