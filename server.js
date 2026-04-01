@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const fs = require("fs");
 
 const app = express();
 app.use(cors());
@@ -12,16 +13,25 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// временное хранилище
+const FILE = "messages.json";
+
+// загрузка сообщений из файла
 let messages = [];
+
+if (fs.existsSync(FILE)) {
+  messages = JSON.parse(fs.readFileSync(FILE));
+}
+
+// сохранение в файл
+function saveMessages() {
+  fs.writeFileSync(FILE, JSON.stringify(messages, null, 2));
+}
 
 io.on("connection", (socket) => {
   console.log("user connected");
 
-  // отправляем историю
   socket.emit("chatHistory", messages);
 
-  // принимаем сообщение
   socket.on("sendMessage", (msg) => {
     const messageData = {
       text: msg.text,
@@ -30,8 +40,8 @@ io.on("connection", (socket) => {
     };
 
     messages.push(messageData);
+    saveMessages();
 
-    // рассылаем всем
     io.emit("newMessage", messageData);
   });
 
@@ -40,7 +50,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// проверка сервера
 app.get("/", (req, res) => {
   res.send("Chat server is running");
 });
