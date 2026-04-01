@@ -2,7 +2,6 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const fs = require("fs");
 
 const app = express();
 app.use(cors());
@@ -13,39 +12,39 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-const FILE = "messages.json";
-
-// загрузка сообщений из файла
-let messages = [];
-
-if (fs.existsSync(FILE)) {
-  messages = JSON.parse(fs.readFileSync(FILE));
-}
-
-// сохранение в файл
-function saveMessages() {
-  fs.writeFileSync(FILE, JSON.stringify(messages, null, 2));
-}
+// userId -> socket.id
+let users = {};
 
 io.on("connection", (socket) => {
   console.log("user connected");
 
-  socket.emit("chatHistory", messages);
+  // регистрация пользователя
+  socket.on("register", (userId) => {
+    users[userId] = socket.id;
+    console.log("registered:", userId);
+  });
 
-  socket.on("sendMessage", (msg) => {
-    const messageData = {
-      text: msg.text,
-      user: msg.user,
-      time: new Date()
-    };
+  // личные сообщения
+  socket.on("privateMessage", (msg) => {
+    const targetSocket = users[msg.to];
 
-    messages.push(messageData);
-    saveMessages();
+    if (targetSocket) {
+      io.to(targetSocket).emit("newMessage", msg);
+    }
 
-    io.emit("newMessage", messageData);
+    // отправителю тоже показываем
+    socket.emit("newMessage", msg);
   });
 
   socket.on("disconnect", () => {
+    // удаляем пользователя
+    for (let id in users) {
+      if (users[id] === socket.id) {
+        delete users[id];
+        break;
+      }
+    }
+
     console.log("user disconnected");
   });
 });
