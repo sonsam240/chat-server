@@ -12,16 +12,27 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
+// временное хранилище
 let messages = [];
 
 io.on("connection", (socket) => {
   console.log("user connected");
 
+  // отправляем историю
   socket.emit("chatHistory", messages);
 
+  // принимаем сообщение
   socket.on("sendMessage", (msg) => {
-    messages.push(msg);
-    io.emit("newMessage", msg);
+    const messageData = {
+      text: msg.text,
+      user: msg.user,
+      time: new Date()
+    };
+
+    messages.push(messageData);
+
+    // рассылаем всем
+    io.emit("newMessage", messageData);
   });
 
   socket.on("disconnect", () => {
@@ -29,6 +40,7 @@ io.on("connection", (socket) => {
   });
 });
 
+// проверка сервера
 app.get("/", (req, res) => {
   res.send("Chat server is running");
 });
@@ -36,5 +48,5 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log("Server started");
+  console.log("Server started on port " + PORT);
 });
