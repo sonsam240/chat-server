@@ -14,79 +14,85 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// userId -> socket.id
-let users = {};
+let users = {}; // userId -> socket.id
 
-// загружаем историю сообщений из файла
+// хранение истории чатов: { 'user1|user2': [{from, to, text, timestamp}, ...] }
 const messagesFile = path.join(__dirname, "messages.json");
 let messages = {};
 if (fs.existsSync(messagesFile)) {
-  try {
-    messages = JSON.parse(fs.readFileSync(messagesFile, "utf-8"));
-  } catch (e) {
-    console.error("Failed to parse messages.json", e);
-  }
+  try { messages = JSON.parse(fs.readFileSync(messagesFile, "utf-8")); } 
+  catch (e) { console.error(e); }
 }
+function saveMessages() { fs.writeFileSync(messagesFile, JSON.stringify(messages, null, 2)); }
 
-// функция для сохранения истории
-function saveMessages() {
-  fs.writeFileSync(messagesFile, JSON.stringify(messages, null, 2));
+// помощник для ключа чата
+function chatKey(userA, userB) {
+  return [userA, userB].sort().join('|'); // одинаковый ключ для обеих сторон
 }
 
 io.on("connection", (socket) => {
   console.log("user connected");
 
-  // регистрация пользователя
   socket.on("register", (userId) => {
     users[userId] = socket.id;
     console.log("registered:", userId);
 
-    // отправляем всю историю сообщений
-    if (messages[userId]) {
-      messages[userId].forEach(msg => socket.emit("newMessage", msg));
+    // отправляем список чатов и последних сообщений
+    let chatList = {};
+    for (let key in messages) {
+      if (key.includes(userId)) {
+        const other = key.replace(userId, '').replace('|','');
+        chatList[other] = messages[key][messages[key].length -1]; // последнее сообщение
+      }
     }
+    socket.emit("chatList", chatList);
   });
 
-  // личные сообщения
   socket.on("privateMessage", (msg) => {
-    // добавляем timestamp
     if (!msg.timestamp) msg.timestamp = Date.now();
+    const key = chatKey(msg.from, msg.to);
 
-    // сохраняем сообщение для получателя
-    if (!messages[msg.to]) messages[msg.to] = [];
-    messages[msg.to].push(msg);
+    if (!messages[key]) messages[key] = [];
+    messages[key].push(msg);
+    saveMessages();
 
-    // сохраняем сообщение для отправителя
-    if (!messages[msg.from]) messages[msg.from] = [];
-    messages[msg.from].push(msg);
-
-    saveMessages(); // сохраняем в файл
-
+    // отправляем получателю
     const targetSocket = users[msg.to];
-    if (targetSocket) {
-      io.to(targetSocket).emit("newMessage", msg);
+    if (targetSocket) io.to(targetSocket).emit("newMessage", msg);
+
+    // отправителю
+    socket.emit("newMessage", msg);
+
+    // обновляем chatList для обоих
+    if (users[msg.to]) {
+      let chatList = {};
+      for (let k in messages) {
+        if (k.includes(msg.to)) {
+          const other = k.replace(msg.to, '').replace('|','');
+          chatList[other] = messages[k][messages[k].length -1];
+        }
+      }
+      io.to(users[msg.to]).emit("chatList", chatList);
     }
 
-    // отправителю тоже показываем
-    socket.emit("newMessage", msg);
+    // для отправителя
+    let chatListFrom = {};
+    for (let k in messages) {
+      if (k.includes(msg.from)) {
+        const other = k.replace(msg.from, '').replace('|','');
+        chatListFrom[other] = messages[k][messages[k].length -1];
+      }
+    }
+    socket.emit("chatList", chatListFrom);
   });
 
   socket.on("disconnect", () => {
     for (let id in users) {
-      if (users[id] === socket.id) {
-        delete users[id];
-        break;
-      }
+      if (users[id] === socket.id) delete users[id];
     }
     console.log("user disconnected");
   });
 });
 
-app.get("/", (req, res) => {
-  res.send("Chat server is running");
-});
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log("Server started on port " + PORT);
-});
+server.listen(PORT, () => console.log("Server started on port " + PORT));
